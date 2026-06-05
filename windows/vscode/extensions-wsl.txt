@@ -2,10 +2,11 @@
 # These run on the VS Code server inside WSL
 # Add one extension ID per line, e.g. publisher.extensionname
 
-ms-python.python
-ms-python.vscode-pylance
-ms-python.debugpy
-ms-python.vscode-python-envs
+anthropic.claude-code
 charliermarsh.ruff
 eamodio.gitlens
-anthropic.claude-code
+ms-python.debugpy
+ms-python.python
+ms-python.vscode-pylance
+ms-python.vscode-python-envs
+openai.chatgpt

@@ -2,9 +2,9 @@
 # These run on the Windows VS Code client
 # Add one extension ID per line, e.g. publisher.extensionname
 
+anthropic.claude-code
 ms-vscode-remote.remote-ssh
 ms-vscode-remote.remote-ssh-edit
-ms-vscode.remote-explorer
 ms-vscode-remote.remote-wsl
-eamodio.gitlens
+ms-vscode.remote-explorer
 pkief.material-icon-theme

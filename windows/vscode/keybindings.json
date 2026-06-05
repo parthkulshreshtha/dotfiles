@@ -3,5 +3,13 @@
     {
         "key": "ctrl+alt+m",
         "command": "workbench.action.toggleMaximizedPanel"
+    },
+    {
+        "key": "shift+enter",
+        "command": "workbench.action.terminal.sendSequence",
+        "args": {
+            "text": "\u001b\r"
+        },
+        "when": "terminalFocus"
     }
 ]
