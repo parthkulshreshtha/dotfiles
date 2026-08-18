@@ -1,5 +1,5 @@
 {
-    "extensions.autoUpdate": false,
+    "extensions.autoUpdate": "off",
     "extensions.autoCheckUpdates": false,
     "workbench.iconTheme": "material-icon-theme",
     "claudeCode.preferredLocation": "panel",
@@ -8,5 +8,7 @@
     "workbench.colorTheme": "Dark Modern",
     "python.terminal.activateEnvironment": false,
     "terminal.integrated.mouseWheelScrollSensitivity": 3,
-    "terminal.integrated.gpuAcceleration": "off"
+    "terminal.integrated.gpuAcceleration": "off",
+    "remote.autoForwardPortsSource": "hybrid",
+    "editor.wordWrap": "on"
 }
