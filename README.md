@@ -40,6 +40,30 @@ dotfiles/
    .\dotfiles\windows\scripts\setup.ps1
    ```
 
+## How to use on a new macOS machine
+
+The Claude Code status line is the only piece wired up on macOS so far.
+
+1. Clone this repo to `~/personal/dotfiles`.
+
+2. Add a `statusLine` block to `~/.claude/settings.json` pointing at the script in the repo:
+   ```json
+   "statusLine": {
+     "type": "command",
+     "command": "/opt/homebrew/bin/python3 /Users/<you>/personal/dotfiles/windows/claude/statusline-command.py",
+     "padding": 0
+   }
+   ```
+   Use an absolute interpreter path — the status line runs in a non-login shell, so Homebrew's
+   `/opt/homebrew/bin` is not guaranteed to be on `PATH`. `/usr/bin/python3` works too; the script
+   is stdlib-only.
+
+3. Sanity-check it without launching Claude Code:
+   ```
+   echo '{"model":{"display_name":"Opus 5"},"cost":{"total_cost_usd":0.1}}' \
+     | python3 windows/claude/statusline-command.py
+   ```
+
 ## Updating extensions
 
 Run manually whenever you want to update — only updates extensions released more than N days ago (configured inside the script):
@@ -69,10 +93,11 @@ Run manually whenever you want to update — only updates extensions released mo
   The setup script installs them fresh from the marketplace.
 - The two status lines are wired up differently:
   - **Claude Code** runs its script straight out of this repo — `~/.claude/settings.json` points at
-    `python3 /home/parth/dotfiles/windows/claude/statusline-command.py`. Editing the file here takes
-    effect immediately, no copy step.
+    it directly (`python3 /home/parth/dotfiles/...` under WSL,
+    `/opt/homebrew/bin/python3 /Users/<you>/personal/dotfiles/...` on macOS). Editing the file here
+    takes effect immediately, no copy step.
   - **Codex** only reads `~/.codex/config.toml`, so `linux/codex/config.toml` is a reference copy.
     Copy it into place on a new machine, then re-add the `[projects."/path"] trust_level` entries —
     those are stripped here because they grant trusted execution on machine-specific paths.
-- `windows/claude/` is a historical location; that script actually runs under WSL. New Linux-side
-  configs go in `linux/`.
+- `windows/claude/` is a historical location; that script is platform-agnostic (pure stdlib Python)
+  and actually runs under WSL and on macOS. New Linux-side configs go in `linux/`.
