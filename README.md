@@ -19,7 +19,8 @@ dotfiles/
 │       ├── setup.ps1            - run once on a new Windows machine to apply all configs
 │       └── update-extensions.ps1 - updates extensions only if N days have passed since release
 └── linux/
-    └── .gitkeep                 - structure to be added when needed
+    └── codex/
+        └── config.toml          - Codex CLI config (model, status line, plugins)
 ```
 
 ## How to use on a new Windows machine
@@ -58,6 +59,7 @@ Run manually whenever you want to update — only updates extensions released mo
 | `windows/scripts/setup.ps1` | Change where files get copied, add new tools to install |
 | `windows/scripts/update-extensions.ps1` | Change the day threshold (default: 7 days) |
 | `windows/claude/statusline-command.py` | Add/remove sections in the Claude Code status line |
+| `linux/codex/config.toml` | Codex model/reasoning effort, `[tui] status_line` segments, feature flags, plugins |
 
 ## Notes
 
@@ -65,4 +67,12 @@ Run manually whenever you want to update — only updates extensions released mo
   Keep a sanitized `ssh/config.example` if needed in future.
 - Extension binaries are not tracked — only the ID lists in `extensions-local.txt` and `extensions-wsl.txt`.
   The setup script installs them fresh from the marketplace.
-- The `linux/` folder is intentionally empty for now. Add structure when setting up a Linux machine.
+- The two status lines are wired up differently:
+  - **Claude Code** runs its script straight out of this repo — `~/.claude/settings.json` points at
+    `python3 /home/parth/dotfiles/windows/claude/statusline-command.py`. Editing the file here takes
+    effect immediately, no copy step.
+  - **Codex** only reads `~/.codex/config.toml`, so `linux/codex/config.toml` is a reference copy.
+    Copy it into place on a new machine, then re-add the `[projects."/path"] trust_level` entries —
+    those are stripped here because they grant trusted execution on machine-specific paths.
+- `windows/claude/` is a historical location; that script actually runs under WSL. New Linux-side
+  configs go in `linux/`.
