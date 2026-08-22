@@ -31,7 +31,7 @@ dotfiles/
 
 2. Clone this repo:
    ```
-   git clone git@github-personal:that-rookie-parth/dotfiles.git
+   git clone git@github-personal:parthkulshreshtha/dotfiles.git
    ```
 
 3. Run setup (copies settings, installs extensions):
