@@ -33,6 +33,10 @@ it costs nothing extra.
 /plugin install consult@parth-dotfiles
 ```
 
+If the commands don't show up right away, restart Claude Code (or check the
+install with `/plugin`). Supported platforms: macOS, Linux, and Windows via
+WSL — anywhere Claude Code's bash has `python3` on `PATH`.
+
 ## Setup
 
 1. **Requirements:** Python 3.11+ (`tomllib` is stdlib from 3.11) on `PATH` as
@@ -100,7 +104,8 @@ questions.
 The roster is resolved in this order:
 
 1. `$CONSULT_ROSTER` — explicit path, wins always
-2. `~/.claude/advisors.toml` — your personal copy
+2. `~/.claude/advisors.toml` — your personal copy (honors `$CLAUDE_CONFIG_DIR`
+   if you have moved your Claude config)
 3. The `advisors.toml` bundled with this plugin — the default
 
 To customise, copy the bundled file to `~/.claude/advisors.toml` and edit it

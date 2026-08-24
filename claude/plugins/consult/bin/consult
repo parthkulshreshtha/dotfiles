@@ -3,7 +3,8 @@
 consult -- fan out a question to a panel of independent model advisors.
 
 Transport is the OpenRouter API. The roster is resolved in this order:
-$CONSULT_ROSTER, then ~/.claude/advisors.toml, then the advisors.toml shipped
+$CONSULT_ROSTER, then <claude config dir>/advisors.toml (~/.claude by default,
+$CLAUDE_CONFIG_DIR when set), then the advisors.toml shipped
 next to this script. This script holds no model names of its own; copy the
 bundled roster to ~/.claude/advisors.toml to customise it without touching the
 plugin. Seats marked kind="subagent" are
@@ -54,22 +55,24 @@ import urllib.error
 import urllib.request
 
 HOME = pathlib.Path.home()
+CLAUDE_DIR = pathlib.Path(os.environ.get("CLAUDE_CONFIG_DIR") or HOME / ".claude")
+XDG_CONFIG = pathlib.Path(os.environ.get("XDG_CONFIG_HOME") or HOME / ".config")
 
 
 def _find_roster():
-    """$CONSULT_ROSTER > ~/.claude/advisors.toml > the roster bundled with the plugin."""
+    """$CONSULT_ROSTER > <claude dir>/advisors.toml > the roster bundled with the plugin."""
     env = os.environ.get("CONSULT_ROSTER")
     if env:
         return pathlib.Path(env).expanduser()
-    user = HOME / ".claude" / "advisors.toml"
+    user = CLAUDE_DIR / "advisors.toml"
     if user.exists():
         return user
     return pathlib.Path(__file__).resolve().parent.parent / "advisors.toml"
 
 
 ROSTER_PATH = _find_roster()
-KEY_PATH = HOME / ".config" / "openrouter" / "key"
-LOG_PATH = HOME / ".claude" / "consult-log.jsonl"
+KEY_PATH = XDG_CONFIG / "openrouter" / "key"
+LOG_PATH = CLAUDE_DIR / "consult-log.jsonl"
 API = "https://openrouter.ai/api/v1"
 
 BASE_SYSTEM = """You are an independent advisor giving a second opinion. You did \

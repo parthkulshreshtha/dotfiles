@@ -19,8 +19,8 @@ say which you chose in a single clause:
 - `max` — irreversible: migrations, auth, public API, anything expensive to undo
 
 `code`, `decision` and `max` seats search the web themselves, and only when the
-question actually turns on a current fact; `cheap` is all offline seats, so do not
-send it a version, a price, or a question about whether a project is still
+question actually turns on a current fact. In `cheap` only `grok` can search, so
+do not rely on that panel for a version, a price, or whether a project is still
 maintained. `--no-web` forces any panel offline, which only saves money on calls
 that would have searched anyway.
 
@@ -43,11 +43,15 @@ concurrently:
 ${CLAUDE_PLUGIN_ROOT}/bin/consult --panel <name> --question "<question>" --artifact <file>
 ```
 
-If the output names a seat as `NOT CALLED BY SCRIPT` (the `fable` subagent seat),
-spawn an Agent with `model: fable`, `run_in_background: false`, giving it the same
-artifact and the stated lens, and requiring it to answer in the same shape:
+The `fable` seat is never called by the script — it appears in the output as
+`NOT CALLED BY SCRIPT`. Its lens is known up front (`prose` on the `writing`
+panel, `conformance` everywhere else), so do not wait for the script: spawn an
+Agent with `model: fable`, `run_in_background: false`, giving it the same
+artifact and that lens, and requiring it to answer in the same shape:
 verdict (AGREE / AGREE_WITH_CHANGES / DISAGREE), at most 3 issues with severity and
 evidence, a concrete alternative if it disagrees, and what would change its mind.
+If `model: fable` is not available on this plan or Claude Code version, spawn the
+subagent with the session's default model instead and say so in the output.
 
 Show all panel output inline, verbatim. Do not summarise away an advisor's reasoning.
 

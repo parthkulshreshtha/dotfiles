@@ -39,6 +39,8 @@ ${CLAUDE_PLUGIN_ROOT}/bin/consult --seat <seat> --question "<question>" --artifa
 
 For the `fable` seat the script returns a directive instead of a verdict; spawn an
 Agent with `model: fable`, `run_in_background: false`, and require the same shape.
+If `model: fable` is not available on this plan or Claude Code version, use the
+session's default model for the subagent and say so in the output.
 
 **If `consult` exits 3, every API key is out of credit.** Stop — do not retry and do
 not answer as though a second opinion had been obtained. Say plainly that the
