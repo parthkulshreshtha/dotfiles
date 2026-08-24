@@ -1,0 +1,806 @@
+#!/usr/bin/env python3
+"""
+consult -- fan out a question to a panel of independent model advisors.
+
+Transport is the OpenRouter API. The roster is resolved in this order:
+$CONSULT_ROSTER, then ~/.claude/advisors.toml, then the advisors.toml shipped
+next to this script. This script holds no model names of its own; copy the
+bundled roster to ~/.claude/advisors.toml to customise it without touching the
+plugin. Seats marked kind="subagent" are
+not called here -- they are emitted as a directive for the calling agent to run
+on its own plan.
+
+Seats that declare web = "native" get live search, run autonomously by the model
+itself. Only the native engine is ever used: OpenRouter's exa fallback searches on
+the user message, which here is a whole artifact, and it returns unrelated news --
+measured, it made an advisor confidently wrong. A seat without native search stays
+offline rather than silently degrading to exa.
+
+Usage:
+  consult --seat sol --question "..." [--artifact FILE] [--lens NAME]
+  consult --panel decision --question "..." [--artifact FILE]
+  consult --no-web                disable live search for this run
+  consult --check                 validate roster slugs against the live catalog
+  consult --list                  show seats, panels and prices
+  consult --check-keys            show credit remaining on every configured key
+
+API keys: more than one may be configured, and they are tried in order. A key is
+retired for the rest of the run when OpenRouter says it is unusable -- 402 (out of
+credit, the documented "insufficient credits" code) or 401 (revoked/disabled) --
+and the next key takes over. Rate limiting (429) does NOT rotate: that is a
+throttle, not an exhausted balance, and burning the spare key on it would hide the
+real problem. When every key is exhausted the run stops with exit code 3 and says
+so plainly rather than returning a panel of empty chairs.
+
+Configure keys in either place (env wins, and both may hold several):
+  OPENROUTER_API_KEY       one key, or several separated by comma/whitespace
+  OPENROUTER_API_KEY_2..9  additional keys, used after the first
+  ~/.config/openrouter/key one key per line; blank lines and #comments ignored
+
+Output is markdown on stdout (--json for the raw records). Per-call telemetry
+is appended to ~/.claude/consult-log.jsonl.
+"""
+
+import argparse
+import concurrent.futures
+import json
+import os
+import threading
+import pathlib
+import sys
+import time
+import tomllib
+import urllib.error
+import urllib.request
+
+HOME = pathlib.Path.home()
+
+
+def _find_roster():
+    """$CONSULT_ROSTER > ~/.claude/advisors.toml > the roster bundled with the plugin."""
+    env = os.environ.get("CONSULT_ROSTER")
+    if env:
+        return pathlib.Path(env).expanduser()
+    user = HOME / ".claude" / "advisors.toml"
+    if user.exists():
+        return user
+    return pathlib.Path(__file__).resolve().parent.parent / "advisors.toml"
+
+
+ROSTER_PATH = _find_roster()
+KEY_PATH = HOME / ".config" / "openrouter" / "key"
+LOG_PATH = HOME / ".claude" / "consult-log.jsonl"
+API = "https://openrouter.ai/api/v1"
+
+BASE_SYSTEM = """You are an independent advisor giving a second opinion. You did \
+not write what you are reviewing and have no stake in defending it. You cannot see \
+the conversation that produced this -- judge only what is in front of you.
+
+{lens}
+{web}
+Rules:
+- Be specific. Quote the exact line, or name the exact component, that you object to.
+- At most {max_issues} issues, ranked by severity. Omit anything you would not act on.
+- If it is sound, return AGREE and say so briefly. Manufactured criticism is a failure,
+  not thoroughness.
+- If you DISAGREE you must supply a concrete alternative, not merely an objection.
+- State what evidence would change your mind. If nothing would, your confidence is
+  misplaced.
+- Judge the substance. Do not comment on formatting unless it changes meaning."""
+
+# Only sent to seats that actually have live search. Without this the model leans on
+# training data and states version-sensitive claims at HIGH confidence -- observed:
+# a seat asserted RenderCV requires a TeX distribution, two major versions out of date.
+WEB_CLAUSE = """
+You have live web search and may use it as you see fit. Use it before asserting anything
+time-sensitive: current versions, what a library uses internally, pricing, whether a
+project is still maintained, who maintains it. Your training data is older than this
+question. A confident wrong claim about a present-day fact is the most damaging thing you
+can return, and it is the specific failure this search exists to prevent. If you did not
+verify a load-bearing factual claim, say so and lower your confidence accordingly.
+"""
+
+SCHEMA = {
+    "name": "advisor_verdict",
+    "strict": True,
+    "schema": {
+        "type": "object",
+        "additionalProperties": False,
+        "required": [
+            "verdict",
+            "headline",
+            "issues",
+            "alternative",
+            "confidence",
+            "what_would_change_my_mind",
+        ],
+        "properties": {
+            "verdict": {
+                "type": "string",
+                "enum": ["AGREE", "AGREE_WITH_CHANGES", "DISAGREE"],
+            },
+            "headline": {
+                "type": "string",
+                "description": "One sentence. The bottom line, stated plainly.",
+            },
+            "issues": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["severity", "claim", "evidence", "fix"],
+                    "properties": {
+                        "severity": {
+                            "type": "string",
+                            "enum": ["CRITICAL", "HIGH", "MEDIUM", "LOW"],
+                        },
+                        "claim": {"type": "string"},
+                        "evidence": {
+                            "type": "string",
+                            "description": "The specific line, component or fact this rests on.",
+                        },
+                        "fix": {"type": "string"},
+                    },
+                },
+            },
+            "alternative": {
+                "type": "string",
+                "description": "Required when verdict is DISAGREE. Empty string otherwise.",
+            },
+            "confidence": {"type": "string", "enum": ["HIGH", "MEDIUM", "LOW"]},
+            "what_would_change_my_mind": {"type": "string"},
+        },
+    },
+}
+
+
+def die(msg, code=1):
+    print(f"consult: {msg}", file=sys.stderr)
+    sys.exit(code)
+
+
+def load_roster():
+    if not ROSTER_PATH.exists():
+        die(f"no roster at {ROSTER_PATH}")
+    with ROSTER_PATH.open("rb") as fh:
+        return tomllib.load(fh)
+
+
+class AllKeysExhausted(Exception):
+    """Every configured key is out of credit or revoked. Not a per-seat failure."""
+
+
+class _HTTPFailure(Exception):
+    """An HTTP error that is the request's fault, not the key's. Kills one seat only."""
+
+    def __init__(self, code, body):
+        super().__init__(f"HTTP {code}")
+        self.code = code
+        self.body = body
+
+
+def load_keys():
+    """Every configured key, best first, as (label, key). Labels never leak key material.
+
+    Order matters: the first key is spent before the second is touched, so a spare
+    key stays a spare. Duplicates are dropped -- the same key twice would be counted
+    as two chances when it is one.
+    """
+    found = []
+
+    def add(label, raw):
+        for piece in str(raw).replace(",", " ").split():
+            piece = piece.strip()
+            if piece and not piece.startswith("#"):
+                found.append((label, piece))
+
+    if os.environ.get("OPENROUTER_API_KEY"):
+        add("env:OPENROUTER_API_KEY", os.environ["OPENROUTER_API_KEY"])
+    for n in range(2, 10):
+        var = f"OPENROUTER_API_KEY_{n}"
+        if os.environ.get(var):
+            add(f"env:{var}", os.environ[var])
+
+    if KEY_PATH.exists():
+        for lineno, line in enumerate(KEY_PATH.read_text().splitlines(), 1):
+            line = line.strip()
+            if line and not line.startswith("#"):
+                add(f"{KEY_PATH.name}:line{lineno}", line)
+
+    seen, keys = set(), []
+    for label, key in found:
+        if key not in seen:
+            seen.add(key)
+            keys.append((label, key))
+
+    if not keys:
+        die(
+            f"no API key: set OPENROUTER_API_KEY or write one key per line to {KEY_PATH}"
+        )
+    return keys
+
+
+class KeyRing:
+    """Hands out the current key; retires keys that OpenRouter has refused.
+
+    Shared by every seat thread on purpose. Seats run concurrently, so without
+    shared state each of them would independently rediscover that key 1 is dead and
+    burn its own failed call doing it. One thread retiring a key moves the whole
+    panel onto the next one.
+    """
+
+    def __init__(self, keys):
+        self._keys = keys
+        self._idx = 0
+        self._dead = []  # (label, reason), in the order they died
+        self._lock = threading.Lock()
+
+    def current(self):
+        """(index, label, key) for the key to use now, or None if all are spent."""
+        with self._lock:
+            if self._idx >= len(self._keys):
+                return None
+            label, key = self._keys[self._idx]
+            return self._idx, label, key
+
+    def retire(self, idx, reason):
+        """Retire key `idx` if it is still the live one. Idempotent under races:
+        two seats failing on the same key must not skip the key after it."""
+        with self._lock:
+            if idx == self._idx:
+                label, _ = self._keys[idx]
+                self._dead.append((label, reason))
+                self._idx += 1
+                remaining = len(self._keys) - self._idx
+                nxt = self._keys[self._idx][0] if remaining else "none left"
+                print(
+                    f"  [keys] {label} retired ({reason}) -> switching to {nxt}",
+                    file=sys.stderr,
+                )
+
+    @property
+    def total(self):
+        return len(self._keys)
+
+    @property
+    def dead(self):
+        with self._lock:
+            return list(self._dead)
+
+    def all_dead(self):
+        with self._lock:
+            return self._idx >= len(self._keys)
+
+
+def key_unusable_reason(code, body):
+    """Should this HTTP failure retire the key? Returns a short reason, or None.
+
+    402 is OpenRouter's documented "insufficient credits" -- account balance or the
+    per-key spend cap. 401 is a revoked/disabled key. Both mean this key will not
+    work again this run. 429 is deliberately excluded: it is a rate limit, and
+    rotating on it would spend the spare key's balance on a throttle that a retry
+    would have cleared. The one exception is a 429 whose body actually talks about
+    credit or quota, which some providers return instead of 402.
+    """
+    if code == 402:
+        return "out of credit (402)"
+    if code == 401:
+        return "revoked or invalid (401)"
+    if code == 429 and any(
+        w in (body or "").lower() for w in ("credit", "quota", "insufficient", "billing")
+    ):
+        return "credit/quota exhausted (429)"
+    return None
+
+
+def key_status(label, key, timeout=15):
+    """What is actually left on this key, as a dict.
+
+    TWO different limits can stop a call, and checking only one gives a false OK:
+      * the ACCOUNT balance (/api/v1/credits: total_credits - total_usage). Shared by
+        every key on the account. When this is <= 0 every key on that account 402s.
+      * this key's own spend cap (/api/v1/key: limit_remaining), an optional sub-limit.
+    Measured 2026-07-29: a key reported $1126 of its own $5500 cap remaining while the
+    account it belonged to was $20 overdrawn. The account is the binding constraint.
+    """
+    out = {"label": label, "usable": False, "note": "", "account_id": None}
+    try:
+        resp = http_json(f"{API}/key", key=key, timeout=timeout)
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode(errors="replace")[:200]
+        out["note"] = key_unusable_reason(exc.code, body) or f"HTTP {exc.code}: {body}"
+        return out
+    except Exception as exc:  # noqa: BLE001
+        out["note"] = f"could not check — {type(exc).__name__}: {exc}"
+        return out
+
+    d = resp.get("data") or {}
+    out["account_id"] = d.get("creator_user_id")
+    out["fingerprint"] = d.get("label") or "?"
+    out["cap"] = d.get("limit")
+    out["cap_left"] = d.get("limit_remaining")
+    out["key_usage"] = d.get("usage")
+
+    try:
+        cred = (http_json(f"{API}/credits", key=key, timeout=timeout).get("data") or {})
+        bought, spent = cred.get("total_credits"), cred.get("total_usage")
+        if bought is not None and spent is not None:
+            out["account_left"] = bought - spent
+            out["account_bought"] = bought
+            out["account_spent"] = spent
+    except Exception:  # noqa: BLE001 - balance is a bonus; the cap check still stands
+        pass
+
+    left = out.get("account_left")
+    if left is not None and left <= 0:
+        out["note"] = f"account balance is ${left:,.2f} — every key on this account will 402"
+        return out
+    if out["cap_left"] is not None and out["cap_left"] <= 0:
+        out["note"] = "this key's own spend cap is used up"
+        return out
+    out["usable"] = True
+    return out
+
+
+def cmd_check_keys():
+    keys = load_keys()
+    print(f"{len(keys)} key(s) configured, in the order they will be used:\n")
+    seen_accounts = {}
+    shared = []
+    for i, (label, key) in enumerate(keys, 1):
+        st = key_status(label, key)
+        verdict = "OK" if st["usable"] else "UNUSABLE"
+        print(f"  {i}. {label}  [{st.get('fingerprint', '?')}]  -> {verdict}")
+        if "account_left" in st:
+            print(
+                f"       account balance: ${st['account_left']:,.2f}"
+                f"   ({st['account_bought']:,.2f} bought, {st['account_spent']:,.2f} used)"
+            )
+        if st.get("cap") is not None and st.get("cap_left") is not None:
+            print(f"       this key's cap:  ${st['cap_left']:,.2f} of ${st['cap']:,.2f} left")
+        if st["note"]:
+            print(f"       -> {st['note']}")
+        acct = st.get("account_id")
+        if acct:
+            if acct in seen_accounts:
+                shared.append((seen_accounts[acct], label))
+            else:
+                seen_accounts[acct] = label
+        print()
+
+    for first, second in shared:
+        print(
+            f"  WARNING: '{second}' is on the same OpenRouter account as '{first}'.\n"
+            "  Keys on one account share one balance, so the second is not a spare —\n"
+            "  when the balance runs out both fail together. A real spare needs a key\n"
+            "  from a different OpenRouter account (or top the account up)."
+        )
+    return 0
+
+
+def http_json(url, payload=None, key=None, timeout=60):
+    data = json.dumps(payload).encode() if payload is not None else None
+    headers = {"Content-Type": "application/json"}
+    if key:
+        headers["Authorization"] = f"Bearer {key}"
+        headers["X-Title"] = "claude-code-consult"
+    req = urllib.request.Request(url, data=data, headers=headers)
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read().decode())
+
+
+def web_for(seat_cfg, defaults, web_override):
+    """Resolve live search for one seat.
+
+    A seat only searches if it declares web = "native" -- that flag asserts the
+    provider has first-party search. --no-web overrides it off; --web cannot switch
+    it on for a seat that lacks the capability, because the only fallback OpenRouter
+    offers is exa, and exa on artifact-shaped input injects unrelated results.
+    """
+    if seat_cfg.get("web") != "native":
+        return False  # no first-party search; staying offline beats the exa fallback
+    if web_override is not None:
+        return web_override
+    return defaults.get("web") == "native"
+
+
+def build_payload(seat_cfg, defaults, lenses, question, artifact, lens_override, web_on):
+    lens_name = lens_override or seat_cfg.get("lens", "red-team")
+    lens_text = lenses.get(lens_name, "").strip()
+    max_issues = defaults.get("max_issues", 3)
+
+    system = BASE_SYSTEM.format(
+        lens=lens_text, max_issues=max_issues, web=WEB_CLAUSE if web_on else ""
+    )
+
+    parts = [f"QUESTION\n{question}"]
+    if artifact:
+        parts.append(f"ARTIFACT UNDER REVIEW\n---\n{artifact}\n---")
+    user = "\n\n".join(parts)
+
+    provider = {
+        "require_parameters": seat_cfg.get(
+            "require_parameters", defaults.get("require_parameters", True)
+        ),
+        "data_collection": seat_cfg.get(
+            "data_collection", defaults.get("data_collection", "allow")
+        ),
+        "allow_fallbacks": seat_cfg.get("allow_fallbacks", True),
+    }
+    for opt in ("order", "only", "ignore", "quantizations"):
+        if opt in seat_cfg:
+            provider[opt] = seat_cfg[opt]
+
+    payload = {
+        "model": seat_cfg["model"],
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+        "response_format": {"type": "json_schema", "json_schema": SCHEMA},
+        "provider": provider,
+        "usage": {"include": True},
+    }
+    if "effort" in seat_cfg:
+        payload["reasoning"] = {"effort": seat_cfg["effort"]}
+    if web_on:
+        # No max_results: the native engines ignore it (asked for 3, got 22 citations).
+        payload["plugins"] = [{"id": "web", "engine": "native"}]
+    return payload, lens_name
+
+
+def call_seat(
+    name, seat_cfg, defaults, lenses, question, artifact, lens_override, keyring, web_override
+):
+    started = time.time()
+    web_on = web_for(seat_cfg, defaults, web_override)
+    payload, lens_name = build_payload(
+        seat_cfg, defaults, lenses, question, artifact, lens_override, web_on
+    )
+    record = {
+        "seat": name,
+        "model": seat_cfg["model"],
+        "lens": lens_name,
+        "web": web_on,
+        "ok": False,
+    }
+    try:
+        resp = None
+        while True:
+            slot = keyring.current()
+            if slot is None:
+                # Not this seat's fault and not recoverable by retrying: let main()
+                # turn this into one clear message instead of N empty chairs.
+                raise AllKeysExhausted()
+            idx, label, key = slot
+            try:
+                resp = http_json(
+                    f"{API}/chat/completions",
+                    payload,
+                    key=key,
+                    timeout=defaults.get("timeout", 240),
+                )
+                record["key"] = label
+                break
+            except urllib.error.HTTPError as exc:
+                body = exc.read().decode(errors="replace")[:400]
+                reason = key_unusable_reason(exc.code, body)
+                if not reason:
+                    raise _HTTPFailure(exc.code, body) from exc
+                keyring.retire(idx, reason)
+                # Loop: pick up whichever key is live now. If another thread already
+                # advanced past this one, current() returns that later key, not a
+                # key we have already proven dead.
+        message = resp["choices"][0]["message"]
+        record["verdict_obj"] = json.loads(message["content"])
+        record["ok"] = True
+        # What it actually read. Absence is not proof it skipped searching -- Google
+        # returns no url_citation annotations even on a verified answer -- so this is
+        # evidence when present, not a silence you can draw a conclusion from.
+        record["sources"] = [
+            {
+                "url": (a.get("url_citation") or {}).get("url", ""),
+                "title": (a.get("url_citation") or {}).get("title", ""),
+            }
+            for a in (message.get("annotations") or [])
+            if a.get("type") == "url_citation"
+        ]
+        # Provider drift telemetry: which backend actually served this call.
+        record["provider"] = resp.get("provider") or "?"
+        usage = resp.get("usage") or {}
+        record["cost"] = usage.get("cost")
+        record["tokens"] = {
+            "in": usage.get("prompt_tokens"),
+            "out": usage.get("completion_tokens"),
+        }
+    except AllKeysExhausted:
+        # Must escape the catch-all below: this is a run-level stop, not one bad seat.
+        raise
+    except _HTTPFailure as exc:
+        record["error"] = f"HTTP {exc.code}: {exc.body}"
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode(errors="replace")[:400]
+        record["error"] = f"HTTP {exc.code}: {body}"
+    except Exception as exc:  # noqa: BLE001 - an empty chair must not kill the panel
+        record["error"] = f"{type(exc).__name__}: {exc}"
+    record["seconds"] = round(time.time() - started, 1)
+    return record
+
+
+def log_records(records, question, panel=None):
+    stamp = time.strftime("%Y-%m-%dT%H:%M:%S%z")
+    with LOG_PATH.open("a") as fh:
+        for rec in records:
+            fh.write(
+                json.dumps(
+                    {
+                        "ts": stamp,
+                        "question": question[:200],
+                        # Panel name is what makes the "is this actually used?" review
+                        # answerable later: code vs decision vs writing vs single seat.
+                        "panel": panel or "(single-seat)",
+                        "seat": rec.get("seat"),
+                        "model": rec.get("model"),
+                        "lens": rec.get("lens"),
+                        "provider": rec.get("provider"),
+                        # Cost review later needs to separate online from offline calls:
+                        # live search roughly doubles a seat's cost.
+                        "web": rec.get("web"),
+                        "sources": len(rec.get("sources") or []),
+                        "seconds": rec.get("seconds"),
+                        "cost": rec.get("cost"),
+                        "tokens": rec.get("tokens"),
+                        "verdict": (rec.get("verdict_obj") or {}).get("verdict"),
+                        "error": rec.get("error"),
+                    }
+                )
+                + "\n"
+            )
+
+
+def render(records, pending_subagents):
+    out = []
+    tally = {}
+    for rec in records:
+        v = (rec.get("verdict_obj") or {}).get("verdict", "ERROR")
+        tally[v] = tally.get(v, 0) + 1
+    if tally:
+        summary = "  ".join(f"{k}={v}" for k, v in sorted(tally.items()))
+        cost = sum(r.get("cost") or 0 for r in records)
+        slowest = max((r.get("seconds") or 0) for r in records) if records else 0
+        out.append(f"**Panel returned** — {summary}  ·  ${cost:.4f}  ·  {slowest}s\n")
+
+    for rec in records:
+        head = f"### {rec['seat']} · `{rec['model']}` · {rec.get('lens', '?')}"
+        if not rec["ok"]:
+            out.append(f"{head}\n\n> **EMPTY CHAIR** — {rec['error']}\n")
+            continue
+        v = rec["verdict_obj"]
+        meta = f"_{rec.get('provider', '?')} · {rec['seconds']}s"
+        if rec.get("cost") is not None:
+            meta += f" · ${rec['cost']:.4f}"
+        if rec.get("web"):
+            n = len(rec.get("sources") or [])
+            meta += f" · online, {n} source{'' if n == 1 else 's'} cited"
+        else:
+            meta += " · offline"
+        meta += "_"
+        out.append(f"{head}\n")
+        out.append(f"**{v['verdict']}** (confidence {v['confidence']}) — {v['headline']}\n")
+        for i, issue in enumerate(v.get("issues", []), 1):
+            out.append(
+                f"{i}. **[{issue['severity']}]** {issue['claim']}\n"
+                f"   - evidence: {issue['evidence']}\n"
+                f"   - fix: {issue['fix']}"
+            )
+        if v["verdict"] == "DISAGREE" and v.get("alternative"):
+            out.append(f"\n**Alternative proposed:** {v['alternative']}")
+        if v.get("what_would_change_my_mind"):
+            out.append(f"\n_Would change its mind if:_ {v['what_would_change_my_mind']}")
+        sources = rec.get("sources") or []
+        if sources:
+            seen, uniq = set(), []
+            for s in sources:
+                if s["url"] and s["url"] not in seen:
+                    seen.add(s["url"])
+                    uniq.append(s)
+            shown = "\n".join(
+                f"> - [{s['title'] or s['url']}]({s['url']})" for s in uniq[:6]
+            )
+            more = f"\n> - _…{len(uniq) - 6} more_" if len(uniq) > 6 else ""
+            out.append(f"\n> **Read:**\n{shown}{more}")
+        out.append(f"\n{meta}\n")
+
+    for name, cfg in pending_subagents:
+        out.append(
+            f"### {name} · subagent ({cfg.get('model')}) · {cfg.get('lens', '?')}\n\n"
+            f"> **NOT CALLED BY SCRIPT.** This seat runs on the Claude plan. The calling\n"
+            f"> agent must spawn a subagent with model `{cfg.get('model')}`, give it the\n"
+            f"> `{cfg.get('lens')}` lens and the same artifact, and demand the same\n"
+            f"> verdict schema.\n"
+        )
+    return "\n".join(out)
+
+
+def cmd_check(roster):
+    catalog = http_json(f"{API}/models", timeout=30)["data"]
+    live = {m["id"]: m for m in catalog}
+    print(f"catalog: {len(live)} models\n")
+    bad = 0
+    for name, cfg in sorted(roster.get("seats", {}).items()):
+        if cfg.get("kind") == "subagent":
+            print(f"  {name:<12} subagent ({cfg.get('model')})  — not on OpenRouter, skipped")
+            continue
+        slug = cfg["model"]
+        if slug in live:
+            m = live[slug]
+            p = m.get("pricing", {})
+            print(
+                f"  {name:<12} OK    {slug:<38} "
+                f"ctx={m.get('context_length')} "
+                f"${float(p.get('prompt', 0)) * 1e6:.2f}/${float(p.get('completion', 0)) * 1e6:.2f}"
+            )
+        else:
+            bad += 1
+            near = [k for k in live if slug.split("/")[-1][:8] in k][:3]
+            print(f"  {name:<12} STALE {slug:<38} did you mean: {', '.join(near) or 'no match'}")
+    for pname, seats in sorted(roster.get("panels", {}).items()):
+        missing = [s for s in seats if s not in roster.get("seats", {})]
+        if missing:
+            bad += 1
+            print(f"  panel '{pname}' references undefined seats: {', '.join(missing)}")
+    print(f"\n{'roster clean' if not bad else f'{bad} problem(s) found'}")
+    return 1 if bad else 0
+
+
+def cmd_list(roster):
+    seats = roster.get("seats", {})
+    print("SEATS")
+    for name, cfg in seats.items():
+        kind = "subagent" if cfg.get("kind") == "subagent" else cfg["model"]
+        web = "online " if cfg.get("web") == "native" else "offline"
+        print(
+            f"  {name:<12} {kind:<40} lens={cfg.get('lens', '-'):<14} "
+            f"{web}  {cfg.get('note', '')}"
+        )
+    print("\nPANELS")
+    for name, members in roster.get("panels", {}).items():
+        print(f"  {name:<12} {', '.join(members)}")
+    print("\nLENSES")
+    print("  " + ", ".join(roster.get("lenses", {})))
+    return 0
+
+
+def main():
+    ap = argparse.ArgumentParser(add_help=True)
+    ap.add_argument("--seat", help="single advisor by name")
+    ap.add_argument("--panel", help="named panel from the roster")
+    ap.add_argument("--question", help="the question to put to the advisors")
+    ap.add_argument("--artifact", help="file containing the plan/diff/text under review")
+    ap.add_argument("--lens", help="override the lens for every seat in this run")
+    web = ap.add_mutually_exclusive_group()
+    web.add_argument(
+        "--web",
+        dest="web",
+        action="store_true",
+        default=None,
+        help="force live search on for native-capable seats (default: per roster)",
+    )
+    web.add_argument(
+        "--no-web",
+        dest="web",
+        action="store_false",
+        help="disable live search for every seat in this run",
+    )
+    ap.add_argument("--check", action="store_true", help="validate roster against live catalog")
+    ap.add_argument(
+        "--check-keys",
+        action="store_true",
+        help="show credit remaining on every configured key, in use order",
+    )
+    ap.add_argument("--list", action="store_true", help="show roster")
+    ap.add_argument("--json", action="store_true", help="emit raw records instead of markdown")
+    args = ap.parse_args()
+
+    if args.check_keys:
+        sys.exit(cmd_check_keys())
+
+    roster = load_roster()
+    if args.check:
+        sys.exit(cmd_check(roster))
+    if args.list:
+        sys.exit(cmd_list(roster))
+
+    if not args.question:
+        die("--question is required")
+    if not (args.seat or args.panel):
+        die("one of --seat or --panel is required")
+
+    seats_cfg = roster.get("seats", {})
+    defaults = roster.get("defaults", {})
+    lenses = roster.get("lenses", {})
+
+    if args.seat:
+        names = [args.seat]
+    else:
+        names = roster.get("panels", {}).get(args.panel)
+        if not names:
+            die(f"unknown panel '{args.panel}' (have: {', '.join(roster.get('panels', {}))})")
+
+    unknown = [n for n in names if n not in seats_cfg]
+    if unknown:
+        die(f"unknown seat(s): {', '.join(unknown)}")
+
+    panel_lenses = roster.get("panel_lenses", {}).get(args.panel or "", {})
+
+    artifact = ""
+    if args.artifact:
+        path = pathlib.Path(args.artifact)
+        if not path.exists():
+            die(f"artifact not found: {path}")
+        artifact = path.read_text()
+
+    api_seats = [(n, seats_cfg[n]) for n in names if seats_cfg[n].get("kind") != "subagent"]
+    sub_seats = [(n, seats_cfg[n]) for n in names if seats_cfg[n].get("kind") == "subagent"]
+
+    records = []
+    if api_seats:
+        keyring = KeyRing(load_keys())
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(api_seats)) as pool:
+            futures = [
+                pool.submit(
+                    call_seat,
+                    name,
+                    cfg,
+                    defaults,
+                    lenses,
+                    args.question,
+                    artifact,
+                    args.lens or panel_lenses.get(name),
+                    keyring,
+                    args.web,
+                )
+                for name, cfg in api_seats
+            ]
+            records = []
+            exhausted = False
+            for f in futures:
+                try:
+                    records.append(f.result())
+                except AllKeysExhausted:
+                    exhausted = True
+        if exhausted:
+            dead = keyring.dead
+            lines = [
+                "",
+                "CANNOT RUN THE PANEL — every OpenRouter key is exhausted.",
+                "",
+                f"Tried {keyring.total} key(s):",
+            ]
+            lines += [f"  - {label}: {reason}" for label, reason in dead]
+            lines += [
+                "",
+                "Add credit to one of them, or configure another key:",
+                f"  echo '<new-key>' >> {KEY_PATH}      # one key per line, tried in order",
+                "  export OPENROUTER_API_KEY_2=<new-key>",
+                "",
+                "Check what is left on each key with:  consult --check-keys",
+            ]
+            print("\n".join(lines), file=sys.stderr)
+            sys.exit(3)
+        # Preserve roster order rather than completion order.
+        order = {n: i for i, (n, _) in enumerate(api_seats)}
+        records.sort(key=lambda r: order[r["seat"]])
+        log_records(records, args.question, args.panel)
+
+    if args.json:
+        print(json.dumps({"records": records, "subagents": sub_seats}, indent=2))
+    else:
+        print(render(records, sub_seats))
+
+    if records and not any(r["ok"] for r in records):
+        sys.exit(2)
+
+
+if __name__ == "__main__":
+    main()

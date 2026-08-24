@@ -1,0 +1,14 @@
+{
+  "name": "parth-dotfiles",
+  "owner": {
+    "name": "Parth Kulshreshtha",
+    "url": "https://github.com/parthkulshreshtha"
+  },
+  "plugins": [
+    {
+      "name": "consult",
+      "source": "./claude/plugins/consult",
+      "description": "Second opinions from independent frontier models via OpenRouter: /consult:2nd for one advisor, /consult:panel for a full panel with a forced decision."
+    }
+  ]
+}
