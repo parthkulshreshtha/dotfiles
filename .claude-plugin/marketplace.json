@@ -9,6 +9,11 @@
       "name": "consult",
       "source": "./claude/plugins/consult",
       "description": "Second opinions from independent frontier models via OpenRouter: /consult:2nd for one advisor, /consult:panel for a full panel with a forced decision."
+    },
+    {
+      "name": "handoff",
+      "source": "./claude/plugins/handoff",
+      "description": "Session resume memory: /handoff:handoff overwrites HANDOFF.md with the live state of the work, and a SessionStart hook injects it into the next session — clear or close any time, pick up cold with zero context."
     }
   ]
 }

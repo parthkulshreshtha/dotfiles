@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "d=\"${CLAUDE_PROJECT_DIR:-.}\"; h=\"$d/HANDOFF.md\"; if [ ! -f \"$h\" ]; then g=$(git -C \"$d\" rev-parse --show-toplevel 2>/dev/null) && h=\"$g/HANDOFF.md\"; fi; if [ -f \"$h\" ] && head -1 \"$h\" | grep -q '^# HANDOFF'; then echo '=== HANDOFF.md — pick up from here (auto-injected) ==='; head -120 \"$h\"; [ \"$(wc -l < \"$h\")\" -gt 120 ] && echo '… (truncated at 120 lines — the file is over its 80-line budget; trim it)'; echo; echo '=== Reality check (computed at session start — if HANDOFF disagrees with this, trust this) ==='; b=$(git -C \"$d\" branch --show-current 2>/dev/null); [ -n \"$b\" ] && echo \"· branch: $b\"; echo '· git status:'; git -C \"$d\" status --short 2>/dev/null | head -15; n=$(git -C \"$d\" status --short 2>/dev/null | wc -l); [ \"$n\" -gt 15 ] && echo \"  … $((n-15)) more changed files\"; echo '· last commits:'; git -C \"$d\" log --oneline -5 2>/dev/null; echo '=== Keep HANDOFF.md current: overwrite it (never append) before the session ends — /handoff:handoff ==='; fi",
+            "statusMessage": "Loading HANDOFF.md"
+          }
+        ]
+      }
+    ]
+  }
+}

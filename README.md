@@ -10,8 +10,10 @@ dotfiles/
 │   └── marketplace.json         - Claude Code plugin marketplace for this repo
 ├── claude/
 │   └── plugins/
-│       └── consult/             - Claude Code plugin: /consult:2nd + /consult:panel
-│                                  (second opinions from independent models via OpenRouter)
+│       ├── consult/             - Claude Code plugin: /consult:2nd + /consult:panel
+│       │                          (second opinions from independent models via OpenRouter)
+│       └── handoff/             - Claude Code plugin: /handoff:handoff + SessionStart hook
+│                                  (HANDOFF.md session resume memory for cold starts)
 ├── windows/
 │   ├── vscode/
 │   │   ├── settings.json          - VS Code preferences
@@ -29,18 +31,18 @@ dotfiles/
         └── config.toml          - Codex CLI config (model, status line, plugins)
 ```
 
-## Claude Code plugin: consult
+## Claude Code plugins
 
-This repo doubles as a Claude Code plugin marketplace. The `consult` plugin adds
-`/consult:2nd` (one independent second opinion) and `/consult:panel` (a panel of
-independent model advisors) backed by OpenRouter. Install from any machine:
+This repo doubles as a Claude Code plugin marketplace:
 
 ```
 /plugin marketplace add parthkulshreshtha/dotfiles
-/plugin install consult@parth-dotfiles
 ```
 
-Setup and full docs: [`claude/plugins/consult/README.md`](claude/plugins/consult/README.md).
+| Plugin | Install | What it does |
+|---|---|---|
+| `consult` | `/plugin install consult@parth-dotfiles` | `/consult:2nd` (one independent second opinion) and `/consult:panel` (a panel of independent model advisors), backed by OpenRouter. [Docs](claude/plugins/consult/README.md). |
+| `handoff` | `/plugin install handoff@parth-dotfiles` | `/handoff:handoff` saves the session state to `HANDOFF.md`; a SessionStart hook injects it into the next session so cold starts resume with zero context. [Docs](claude/plugins/handoff/README.md). |
 
 ## How to use on a new Windows machine
 
