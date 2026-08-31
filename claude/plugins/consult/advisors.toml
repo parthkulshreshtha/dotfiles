@@ -85,7 +85,7 @@ model = "openai/gpt-5.6-sol"
 effort = "high"
 lens = "red-team"
 web = "native"
-note = "$5/$30 - hardest reasoning tier, lowest-sycophancy family on BrokenMath"
+note = "$2/$10 - hardest reasoning tier, lowest-sycophancy family on BrokenMath"
 
 [seats.gemini]
 model = "google/gemini-3.1-pro-preview"
@@ -125,7 +125,7 @@ lens = "prose"
 note = "$3/$15, 1M ctx - tops EQ-Bench Creative Writing"
 
 [seats.muse]
-model = "meta/muse-spark-1.1"
+model = "meta/muse-spark-1.2"
 lens = "prose"
 note = "$1.25/$4.25 - near-frontier writing at value price"
 
@@ -141,10 +141,10 @@ model = "openai/gpt-5.6-sol-pro"
 effort = "high"
 lens = "red-team"
 web = "native"
-note = "$5/$30 - pro variant, for the max panel"
+note = "$2/$10 - pro variant, for the max panel"
 
 [seats.grok-45]
-model = "x-ai/grok-4.5"
+model = "x-ai/grok-4.6"
 effort = "high"
 lens = "contrarian"
 web = "native"
@@ -155,14 +155,14 @@ model = "z-ai/glm-5.2"
 effort = "high"
 lens = "correctness"
 quantizations = ["bf16", "fp8"]
-note = "$0.77/$2.43, 1M ctx, MIT - #1 open-weight"
+note = "$1.19/$3.74, 1M ctx, MIT - #1 open-weight"
 
 [seats.deepseek]
-model = "deepseek/deepseek-v4-pro"
+model = "deepseek/deepseek-v4-pro-0813"
 effort = "high"
 lens = "correctness"
 quantizations = ["bf16", "fp8"]
-note = "$0.44/$0.87 - cheapest serious reasoning"
+note = "$0.66/$1.98 - GA build, cheapest serious reasoning"
 
 [seats.minimax]
 model = "minimax/minimax-m3"
