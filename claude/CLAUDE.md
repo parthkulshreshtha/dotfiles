@@ -1,11 +1,29 @@
 # Global conventions
 
+## Error messages and logs
+
+- Never put data values in error messages or logs — they may be sensitive and logs travel.
+  Identify the problem with metadata only: type names, table/column/field names, counts.
+
 ## Git commits
 
 - Do NOT add `Co-Authored-By: Claude ...` trailers to commit messages.
 - Do NOT add `Claude-Session:` links or any other Claude Code metadata to commit messages.
 - Do NOT add "Generated with Claude Code" footers to commit messages or PR bodies.
 - Commit messages describe the change only.
+
+## Code comments and docstrings
+
+- Committed code never references planning artifacts: plan steps (`P3`), decision
+  notes (`decision 0001`, `DECISIONS.md`), handoffs, build-order steps, ticket
+  briefs in `notes/`, or anything else that lives outside the repo's committed
+  files. Other people and their agents read the code without those files.
+- If the referenced reasoning matters to the next reader, inline it in one or two
+  sentences. If it is bookkeeping ("step 2 of the plan"), drop it.
+- Test for every comment: does it still make sense to a stranger with only the
+  committed repo? If not, rewrite or delete it.
+- References to committed artifacts are fine: ticket IDs, migration numbers,
+  files in `docs/`.
 
 ## How to write replies to me
 
