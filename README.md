@@ -9,6 +9,8 @@ dotfiles/
 ├── .claude-plugin/
 │   └── marketplace.json         - Claude Code plugin marketplace for this repo
 ├── claude/
+│   ├── CLAUDE.md                - global Claude Code conventions
+│   │                              (symlink ~/.claude/CLAUDE.md to this)
 │   └── plugins/
 │       ├── consult/             - Claude Code plugin: /consult:2nd + /consult:panel
 │       │                          (second opinions from independent models via OpenRouter)

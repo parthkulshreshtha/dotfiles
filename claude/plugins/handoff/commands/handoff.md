@@ -21,6 +21,9 @@ SessionStart hook injects it into every new session in this project automaticall
 - `git status --short` and `git log --oneline -5` — what is committed vs pending.
   (Not a git repo? Skip these; the file still works.)
 - This conversation — what changed, what was decided, what broke.
+- **`PLAN.md` and `DECISIONS.md`** at the project root, if they exist — you need the
+  current step IDs (`P5`), decision IDs (`D2`), and open question IDs (`Q1`) so this
+  file points at them instead of describing them in prose.
 
 ## Write exactly these five sections, in this order
 
@@ -37,24 +40,32 @@ Section bodies below describe what to write — they are not literal text.
 
 ## Now
 One short paragraph: what this project is in one clause, and what is mid-flight
-this moment. A cold reader gets oriented from this paragraph alone.
+this moment. A cold reader gets oriented from this paragraph alone. If a `PLAN.md`
+exists, open with the orientation line —
+`Plan: PLAN.md · Done: P1-P4 · Now: P5 (wire up cache) · Blocked: Q2` — then the
+paragraph.
 
 ## Just finished
 2–5 bullets covering this session's completed work only (commit subjects welcome).
-This is not a history — older work is already in git.
+Lead each bullet with its step ID and a plain-words restatement, e.g.
+`P3 — added retry to fetchUser(), src/api.ts`. This is not a history — older work
+is already in git.
 
 ## Next step
 The first concrete action a fresh session can take, specific enough to start with
-zero questions: file paths, the command to run, the doc to write. If every next
-action is blocked, say so and name the blocking item from "Waiting on user".
+zero questions: file paths, the command to run, the doc to write. Lead with the step
+ID and restate what it means in plain words on the same line — never a bare `P5`.
+If every next action is blocked, say so and name the blocking `Q` item from
+"Waiting on user".
 
 ## Watch out
 Only traps that are still live and will bite the next session (a gotcha found
 today, a half-done rename, a flaky dependency). Drop entries that no longer apply.
 
 ## Waiting on user
-Pending decisions or approvals carried forward until resolved, each with what it
-unblocks. Write "Nothing." if none.
+Pending decisions or approvals carried forward until resolved, each with its `Q`
+ID, the options I have to choose between, and which steps it unblocks. Write
+"Nothing." if none.
 ```
 
 ## Rules
@@ -64,6 +75,11 @@ unblocks. Write "Nothing." if none.
   anything else.
 - Write for a stranger: no session shorthand, no "as discussed", no pronouns without
   referents. Every path and command exact and runnable.
+- **Never a bare ID.** Every `P`, `D`, or `Q` reference is followed by a plain-words
+  restatement on the same line. `P5` alone is unreadable cold; `P5 (wire up the
+  Redis cache in src/cache.ts)` is not.
+- Do not renumber plan steps to tidy them up. IDs are how past sessions and past
+  chat messages stay findable.
 - A gotcha that will outlive the next few sessions belongs in the project's own docs
   (`CLAUDE.md`, a notes file — wherever this project keeps durable facts); "Watch out"
   keeps at most a one-line pointer while it still affects the immediate next step.
