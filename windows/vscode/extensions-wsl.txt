@@ -12,5 +12,6 @@ ms-python.python
 ms-python.vscode-pylance
 ms-python.vscode-python-envs
 openai.chatgpt
+pomdtr.excalidraw-editor
 repreng.csv
 yzane.markdown-pdf
