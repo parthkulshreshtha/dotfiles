@@ -15,6 +15,9 @@ dotfiles/
 ├── claude/
 │   ├── CLAUDE.md                - global Claude Code conventions
 │   │                              (symlink ~/.claude/CLAUDE.md to this)
+│   ├── hooks/
+│   │   └── block-claude-attribution.py - PreToolUse hook: blocks commits/PRs with
+│   │                              Claude attribution lines
 │   └── plugins/
 │       ├── consult/             - Claude Code plugin: /consult:2nd + /consult:panel
 │       │                          (second opinions from independent models via OpenRouter)
@@ -98,6 +101,37 @@ The steps below configure the Claude Code status line.
      | python3 windows/claude/statusline-command.py
    ```
 
+## Keeping Claude attribution out of commits (macOS)
+
+Two parts in `~/.claude/settings.json`. The setting stops Claude Code asking for the
+lines; the hook blocks any commit or PR command that still carries them.
+
+```json
+"attribution": { "commit": "", "pr": "", "sessionUrl": false },
+"hooks": {
+  "PreToolUse": [
+    {
+      "matcher": "Bash",
+      "hooks": [{
+        "type": "command",
+        "command": "/opt/homebrew/bin/python3 /Users/<you>/personal/dotfiles/claude/hooks/block-claude-attribution.py",
+        "timeout": 10
+      }]
+    }
+  ]
+}
+```
+
+Check the path works; a wrong path does not block, it silently disables the guard:
+
+```
+echo '{"tool_input":{"command":"git commit -m x -m \"Claude-Session: y\""}}' \
+  | /opt/homebrew/bin/python3 claude/hooks/block-claude-attribution.py; echo "exit $?"
+```
+
+Expect `exit 2`. The hook reads only the command text, so messages from files
+(`git commit -F`, `--body-file`) are not checked.
+
 ## Updating extensions
 
 Run manually whenever you want to update — only updates extensions released more than N days ago (configured inside the script):
@@ -117,6 +151,7 @@ Run manually whenever you want to update — only updates extensions released mo
 | `windows/scripts/setup.ps1` | Change where files get copied, add new tools to install |
 | `windows/scripts/update-extensions.ps1` | Change the day threshold (default: 7 days) |
 | `windows/claude/statusline-command.py` | Add/remove sections in the Claude Code status line |
+| `claude/hooks/block-claude-attribution.py` | Change which attribution lines block a commit or PR |
 | `codex/config.toml` | Portable Codex settings and status-line segments; no model defaults |
 | `codex/consult/advisors.toml` | Consult reviewer models, routes, and panels |
 
