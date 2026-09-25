@@ -6,7 +6,7 @@
 timeout = 240            # seconds per seat
 max_issues = 3           # cap on issues returned per advisor
 require_parameters = true  # never route to a provider that silently drops reasoning/schema params
-data_collection = "allow"  # flip to "deny" to avoid providers that may train on your data
+data_collection = "deny"   # never route to a provider that may store or train on prompts
 
 # Live web search. Only seats with web = "native" below can search; this default
 # exists so `--web` has something to switch on and is otherwise inert.

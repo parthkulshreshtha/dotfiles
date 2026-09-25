@@ -26,7 +26,8 @@ that would have searched anyway.
 
 ## 2. Build the artifact
 
-Write what the panel should judge to a temp file via `mktemp /tmp/consult-XXXXXX.md`.
+Write what the panel should judge to a temp file via `mktemp /tmp/consult-XXXXXX`
+(the X's must end the name).
 
 The artifact is **self-contained**. The advisors cannot see this conversation, and
 that is deliberate — it is what stops them anchoring on my framing. So include the
@@ -109,7 +110,7 @@ pushable from a work repo. The log stays private and outside version control whi
 still being per-project.
 
 ```markdown
-## <YYYY-MM-DD> — <question in one line>
+## <YYYY-MM-DD>: <question in one line>
 - **Panel:** <name> (<seats>)
 - **Verdicts:** <tally>
 - **Decision:** <what we're doing>

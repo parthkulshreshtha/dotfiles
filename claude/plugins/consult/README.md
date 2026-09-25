@@ -123,12 +123,17 @@ stale slugs and suggests near-matches from the live catalog.
   every key is dead the run exits with code 3 and the commands are instructed to
   stop rather than fake a review. Keys on the same OpenRouter account share one
   balance — `--check-keys` warns when it detects this.
-- **Telemetry:** each call appends one line (seat, cost, tokens, verdict — first
-  200 chars of the question, never the artifact) to `~/.claude/consult-log.jsonl`
-  so you can review cost and usage later. Delete or truncate freely.
-- **Privacy:** artifacts are sent to the model providers behind OpenRouter. Set
-  `data_collection = "deny"` in the roster's `[defaults]` to avoid providers
-  that may train on your data. Don't send secrets in artifacts.
+- **Telemetry:** each call appends one line of metadata (seat, provider, cost,
+  tokens, verdict, question length, and an error label such as `HTTP 404`) to
+  `~/.claude/consult-log.jsonl` so you can review cost and usage later. It never
+  holds the question, the artifact, or provider error bodies. Delete or truncate
+  freely.
+- **Privacy:** artifacts are sent to the model providers behind OpenRouter. The
+  roster's `[defaults]` sets `data_collection = "deny"`, so OpenRouter skips
+  providers that may store or train on your prompts. A seat whose providers all
+  collect data shows an EMPTY CHAIR saying no endpoint matches your data policy.
+  To use that seat anyway, set `data_collection = "allow"` on that seat only, and
+  only on purpose. Don't send secrets in artifacts.
 
 ## Files
 

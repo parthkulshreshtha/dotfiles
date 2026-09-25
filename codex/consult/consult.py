@@ -112,7 +112,7 @@ def main():
     select.add_argument("--seat")
     select.add_argument("--panel")
     p.add_argument("--question")
-    p.add_argument("--artifact", type=Path)
+    p.add_argument("--artifact")
     p.add_argument("--lens")
     p.add_argument("--list", action="store_true")
     p.add_argument("--check", action="store_true")
@@ -140,7 +140,11 @@ def main():
         p.error("Unknown panel or seat")
     if args.lens and args.lens not in roster["lenses"]:
         p.error("Unknown lens")
-    artifact = args.artifact.read_text() if args.artifact else ""
+    artifact = Path(args.artifact).read_text() if args.artifact else ""
+    # A failed $(mktemp) passes --artifact "", which skips the read. The flag stays a str
+    # because Path("") becomes "." and would hide the empty value.
+    if args.artifact is not None and not artifact.strip():
+        p.error("Artifact is empty")
     remote = any(roster["seats"][n].get("kind") != "subagent" for n in names)
     keyring = helper.KeyRing(helper.load_keys()) if remote else None
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(names)) as pool:

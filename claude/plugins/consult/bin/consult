@@ -314,7 +314,7 @@ def key_status(label, key, timeout=15):
         out["note"] = key_unusable_reason(exc.code, body) or f"HTTP {exc.code}: {body}"
         return out
     except Exception as exc:  # noqa: BLE001
-        out["note"] = f"could not check — {type(exc).__name__}: {exc}"
+        out["note"] = f"could not check ({type(exc).__name__}: {exc})"
         return out
 
     d = resp.get("data") or {}
@@ -336,7 +336,7 @@ def key_status(label, key, timeout=15):
 
     left = out.get("account_left")
     if left is not None and left <= 0:
-        out["note"] = f"account balance is ${left:,.2f} — every key on this account will 402"
+        out["note"] = f"account balance is ${left:,.2f}, so every key on this account will 402"
         return out
     if out["cap_left"] is not None and out["cap_left"] <= 0:
         out["note"] = "this key's own spend cap is used up"
@@ -374,7 +374,7 @@ def cmd_check_keys():
     for first, second in shared:
         print(
             f"  WARNING: '{second}' is on the same OpenRouter account as '{first}'.\n"
-            "  Keys on one account share one balance, so the second is not a spare —\n"
+            "  Keys on one account share one balance, so the second is not a spare:\n"
             "  when the balance runs out both fail together. A real spare needs a key\n"
             "  from a different OpenRouter account (or top the account up)."
         )
@@ -426,7 +426,7 @@ def build_payload(seat_cfg, defaults, lenses, question, artifact, lens_override,
             "require_parameters", defaults.get("require_parameters", True)
         ),
         "data_collection": seat_cfg.get(
-            "data_collection", defaults.get("data_collection", "allow")
+            "data_collection", defaults.get("data_collection", "deny")
         ),
         "allow_fallbacks": seat_cfg.get("allow_fallbacks", True),
     }
@@ -538,7 +538,9 @@ def log_records(records, question, panel=None):
                 json.dumps(
                     {
                         "ts": stamp,
-                        "question": question[:200],
+                        # Metadata only: question text and provider error bodies can hold
+                        # sensitive data, and this log outlives the session.
+                        "question_chars": len(question),
                         # Panel name is what makes the "is this actually used?" review
                         # answerable later: code vs decision vs writing vs single seat.
                         "panel": panel or "(single-seat)",
@@ -554,7 +556,8 @@ def log_records(records, question, panel=None):
                         "cost": rec.get("cost"),
                         "tokens": rec.get("tokens"),
                         "verdict": (rec.get("verdict_obj") or {}).get("verdict"),
-                        "error": rec.get("error"),
+                        # The label before the first colon, e.g. "HTTP 404" or "KeyError".
+                        "error": (rec.get("error") or "").split(":", 1)[0] or None,
                     }
                 )
                 + "\n"
@@ -571,12 +574,12 @@ def render(records, pending_subagents):
         summary = "  ".join(f"{k}={v}" for k, v in sorted(tally.items()))
         cost = sum(r.get("cost") or 0 for r in records)
         slowest = max((r.get("seconds") or 0) for r in records) if records else 0
-        out.append(f"**Panel returned** — {summary}  ·  ${cost:.4f}  ·  {slowest}s\n")
+        out.append(f"**Panel returned:** {summary}  ·  ${cost:.4f}  ·  {slowest}s\n")
 
     for rec in records:
         head = f"### {rec['seat']} · `{rec['model']}` · {rec.get('lens', '?')}"
         if not rec["ok"]:
-            out.append(f"{head}\n\n> **EMPTY CHAIR** — {rec['error']}\n")
+            out.append(f"{head}\n\n> **EMPTY CHAIR:** {rec['error']}\n")
             continue
         v = rec["verdict_obj"]
         meta = f"_{rec.get('provider', '?')} · {rec['seconds']}s"
@@ -589,7 +592,7 @@ def render(records, pending_subagents):
             meta += " · offline"
         meta += "_"
         out.append(f"{head}\n")
-        out.append(f"**{v['verdict']}** (confidence {v['confidence']}) — {v['headline']}\n")
+        out.append(f"**{v['verdict']}** (confidence {v['confidence']}): {v['headline']}\n")
         for i, issue in enumerate(v.get("issues", []), 1):
             out.append(
                 f"{i}. **[{issue['severity']}]** {issue['claim']}\n"
@@ -632,7 +635,7 @@ def cmd_check(roster):
     bad = 0
     for name, cfg in sorted(roster.get("seats", {}).items()):
         if cfg.get("kind") == "subagent":
-            print(f"  {name:<12} subagent ({cfg.get('model')})  — not on OpenRouter, skipped")
+            print(f"  {name:<12} subagent ({cfg.get('model')}): not on OpenRouter, skipped")
             continue
         slug = cfg["model"]
         if slug in live:
@@ -742,6 +745,9 @@ def main():
         if not path.exists():
             die(f"artifact not found: {path}")
         artifact = path.read_text()
+    # Outside the if: a failed $(mktemp) passes --artifact "" and skips the read.
+    if args.artifact is not None and not artifact.strip():
+        die(f"artifact is empty: {args.artifact!r}")
 
     api_seats = [(n, seats_cfg[n]) for n in names if seats_cfg[n].get("kind") != "subagent"]
     sub_seats = [(n, seats_cfg[n]) for n in names if seats_cfg[n].get("kind") == "subagent"]
@@ -776,7 +782,7 @@ def main():
             dead = keyring.dead
             lines = [
                 "",
-                "CANNOT RUN THE PANEL — every OpenRouter key is exhausted.",
+                "CANNOT RUN THE PANEL: every OpenRouter key is exhausted.",
                 "",
                 f"Tried {keyring.total} key(s):",
             ]

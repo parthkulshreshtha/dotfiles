@@ -30,8 +30,9 @@ cents only on calls that would have searched.
 
 ## Run it
 
-Write the artifact to `mktemp /tmp/consult-XXXXXX.md` — self-contained, no
-conversation history, and without my argument for why it is right. Then:
+Write the artifact to `mktemp /tmp/consult-XXXXXX` (the X's must end the name) —
+self-contained, no conversation history, and without my argument for why it is
+right. Then:
 
 ```
 ${CLAUDE_PLUGIN_ROOT}/bin/consult --seat <seat> --question "<question>" --artifact <file>
