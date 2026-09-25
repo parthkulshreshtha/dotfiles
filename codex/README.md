@@ -34,7 +34,7 @@ Do not bypass hook trust. Review hooks again if Codex reports them changed.
 | `../shared/skills/humanizer` | Linked under both `~/.agents/skills/` and `~/.claude/skills/` |
 | `consult/advisors.toml` | Codex-only reviewer models, roles, and panels |
 | `consult/consult.py` | Executes complete reviews; reuses Claude's OpenRouter transport code |
-| `hooks/gh-account-guard.py` | GitHub account routing via `~/.codex/hooks.json` |
+| `hooks/gh-account-guard.py` | Link to `../shared/hooks/gh-account-guard.py`, run via `~/.codex/hooks.json` for GitHub account routing |
 | `hooks/session-start.py` | Loads handoffs and private scoped notes via `~/.codex/hooks.json` |
 | `install.py`, `check.py` | Repeatable setup and offline checks |
 
@@ -89,6 +89,8 @@ These readable notes complement Codex's enabled native memory; its internal memo
 
 ## GitHub guard
 
+The guard lives in `../shared/hooks/gh-account-guard.py`; `hooks/gh-account-guard.py` is a symlink to it, so the Codex hook path stays the same.
+Claude Code runs the same file with `--claude` from `~/.claude/settings.json`. That mode leaves the approval decision to Claude's own permission checks.
 Bare `gh` calls under `~/personal` use `~/.config/gh-personal`; those under `~/work` use `~/.config/gh-work`.
 Named tree paths take precedence over the command working directory. Mixed or missing trees are denied.
 Automatic routing clears inherited `GH_TOKEN` and `GITHUB_TOKEN` overrides.

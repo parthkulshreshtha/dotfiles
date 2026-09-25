@@ -23,8 +23,8 @@ def module(name, path):
     return result
 
 
-def guard(command, cwd, **extra):
-    result = subprocess.run([sys.executable, str(ROOT / "hooks/gh-account-guard.py")],
+def guard(command, cwd, *args, **extra):
+    result = subprocess.run([sys.executable, str(ROOT / "hooks/gh-account-guard.py"), *args],
                             input=json.dumps({"cwd": str(cwd), "tool_input": {"command": command, **extra}}),
                             text=True, capture_output=True, check=True)
     return json.loads(result.stdout).get("hookSpecificOutput", {}) if result.stdout else {}
@@ -45,6 +45,11 @@ def main():
     assert guard("gh --version; gh api user", "/tmp")["permissionDecision"] == "deny"
     assert guard("GH_CONFIG_DIR=/tmp/explicit gh api user", "/tmp") == {}
     assert guard("echo safe", "/tmp") == {}
+    claude = guard("gh api user", home / "personal", "--claude")
+    assert "permissionDecision" not in claude and "gh-personal" in claude["updatedInput"]["command"]
+    for bypass in ("gh --version && gh pr list", "echo $GH_CONFIG_DIR; gh pr list",
+                   "/opt/homebrew/bin/gh pr list", "command gh pr list", "env gh pr list"):
+        assert guard(bypass, "/tmp", "--claude")["permissionDecision"] == "deny"
     bad = subprocess.run([sys.executable, str(ROOT / "hooks/gh-account-guard.py")], input="{", text=True, capture_output=True)
     assert bad.returncode == 2
 
