@@ -1,0 +1,86 @@
+{
+  "attribution": {
+    "commit": "",
+    "pr": "",
+    "sessionUrl": false
+  },
+  "permissions": {
+    "defaultMode": "auto"
+  },
+  "model": "opus[1m]",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "i=$(cat); case \"$i\" in *gh*) printf %s \"$i\" | /opt/homebrew/bin/python3 /Users/parth.kulshreshtha/personal/dotfiles/shared/hooks/gh-account-guard.py --claude ;; esac",
+            "timeout": 10,
+            "statusMessage": "Checking GitHub account"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "i=$(cat); case \"$i\" in *commit*|*gh*) printf %s \"$i\" | /opt/homebrew/bin/python3 /Users/parth.kulshreshtha/personal/dotfiles/claude/hooks/block-claude-attribution.py ;; esac",
+            "timeout": 10,
+            "statusMessage": "Checking commit attribution"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh /Users/parth.kulshreshtha/personal/dotfiles/claude/hooks/direnv-env.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "/opt/homebrew/bin/python3 /Users/parth.kulshreshtha/personal/dotfiles/claude/statusline.py",
+    "padding": 0
+  },
+  "enabledPlugins": {
+    "consult@parth-dotfiles": true,
+    "handoff@parth-dotfiles": true,
+    "ponytail@ponytail": true
+  },
+  "extraKnownMarketplaces": {
+    "parth-dotfiles": {
+      "source": {
+        "source": "directory",
+        "path": "/Users/parth.kulshreshtha/personal/dotfiles"
+      }
+    },
+    "ponytail": {
+      "source": {
+        "source": "github",
+        "repo": "DietrichGebert/ponytail"
+      }
+    }
+  },
+  "modelSettings": {
+    "claude-fable-5-1": {
+      "effortLevel": "high"
+    }
+  },
+  "tui": "fullscreen",
+  "voice": {
+    "enabled": true,
+    "mode": "hold"
+  },
+  "theme": "dark",
+  "inputNeededNotifEnabled": true,
+  "agentPushNotifEnabled": true,
+  "voiceEnabled": true
+}
