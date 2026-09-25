@@ -27,14 +27,14 @@ SessionStart hook injects it into every new session in this project automaticall
 
 ## Write exactly these five sections, in this order
 
-Title the file `# HANDOFF — <name>` where `<name>` is the repo directory
+Title the file `# HANDOFF: <name>` where `<name>` is the repo directory
 (`basename $(git rev-parse --show-toplevel)`, or the working directory's name).
 Keep that exact title form — the SessionStart hook only injects files whose first
 line starts with `# HANDOFF`, so an unrelated file with this name stays untouched.
 Section bodies below describe what to write — they are not literal text.
 
 ```markdown
-# HANDOFF — <name>
+# HANDOFF: <name>
 
 *(Overwrite this file, never append. Keep ≤80 lines.)*
 
@@ -48,7 +48,7 @@ paragraph.
 ## Just finished
 2–5 bullets covering this session's completed work only (commit subjects welcome).
 Lead each bullet with its step ID and a plain-words restatement, e.g.
-`P3 — added retry to fetchUser(), src/api.ts`. This is not a history — older work
+`P3: added retry to fetchUser(), src/api.ts`. This is not a history — older work
 is already in git.
 
 ## Next step

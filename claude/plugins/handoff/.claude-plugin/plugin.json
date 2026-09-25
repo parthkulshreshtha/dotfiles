@@ -2,7 +2,7 @@
   "name": "handoff",
   "displayName": "Handoff — session resume memory",
   "description": "One command, one file: /handoff:handoff overwrites HANDOFF.md with the live state of the work, and a SessionStart hook injects it into the next session — so you can clear or close any time and a cold session picks up with zero context from you.",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": {
     "name": "Parth Kulshreshtha",
     "url": "https://github.com/parthkulshreshtha"
