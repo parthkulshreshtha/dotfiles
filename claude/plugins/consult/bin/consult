@@ -494,8 +494,20 @@ def call_seat(
                 # Loop: pick up whichever key is live now. If another thread already
                 # advanced past this one, current() returns that later key, not a
                 # key we have already proven dead.
-        message = resp["choices"][0]["message"]
-        record["verdict_obj"] = json.loads(message["content"])
+        choice = resp["choices"][0]
+        message = choice["message"]
+        if not message.get("content"):
+            # Empty content is a provider-side stop (filter, length, tool-only turn),
+            # not a JSON problem: say which, so the empty chair is diagnosable.
+            raise RuntimeError(
+                "empty content; finish_reason="
+                f"{choice.get('finish_reason')!r} native="
+                f"{choice.get('native_finish_reason')!r} refusal_chars="
+                f"{len(message.get('refusal') or '')} keys={sorted(message)}"
+            )
+        # Some seats append prose after the JSON object; take the first object only.
+        content = message["content"].lstrip()
+        record["verdict_obj"] = json.JSONDecoder().raw_decode(content)[0]
         record["ok"] = True
         # What it actually read. Absence is not proof it skipped searching -- Google
         # returns no url_citation annotations even on a verified answer -- so this is
